@@ -6,7 +6,7 @@
 <title>精舍活動報到系統</title>
 <!-- 若瀏覽器不支援 BarcodeDetector（例如部分 iOS Safari 版本），
      載入 jsQR 作為解碼備援函式庫。此為公開 CDN 函式庫，僅在必要時使用。 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
   /* ============================================================
    * 精舍活動報到系統－報到頁 checkin.html（獨立靜態網頁版，v2.0）
@@ -164,10 +164,29 @@ function 啟動相機() {
       elVideo.setAttribute('playsinline', true);
       elVideo.play();
       requestAnimationFrame(掃描迴圈);
+      顯示掃描引擎狀態();
     })
     .catch(function (e) {
       elScanTip.innerHTML = '<span class="warn">無法啟用相機（' + e.message + '），請改用下方手動輸入學員編號。</span>';
     });
+}
+
+/**
+ * v2.1
+ * 顯示掃描引擎狀態：在畫面上標示目前用哪種方式解碼 QR Code，
+ * 方便在手機（尤其 iPhone 不支援瀟覽器原生 BarcodeDetector）上排查掃描不到的問題，
+ * 不需要連接電腦開發者工具也能看出是「解碼函式庫沒載入」還是其他問題。
+ */
+function 顯示掃描引擎狀態() {
+  var str狀態;
+  if (bool使用原生偵測) {
+    str狀態 = '（使用瀏覽器原生掃碼）';
+  } else if (typeof jsQR === 'function') {
+    str狀態 = '（使用 jsQR 掃碼函式庫）';
+  } else {
+    str狀態 = '<span class="warn">（掃碼函式庫載入失敗，暫時無法自動掃描，請改用手動輸入學員編號）</span>';
+  }
+  elScanTip.innerHTML = '請將 QR Code 對準鏡頭　' + str狀態;
 }
 
 function 掃描迴圈() {

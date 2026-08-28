@@ -54,6 +54,7 @@
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas" style="display:none;"></canvas>
     <div id="掃描提示" class="sub">請將 QR Code 對準鏡頭</div>
+    <div id="除錯資訊" class="sub" style="color:#999;"></div>
 
     <div class="manual-entry">
       <label for="手動編號">若無法掃描，可手動輸入學員編號：</label>
@@ -189,23 +190,46 @@ function 顯示掃描引擎狀態() {
   elScanTip.innerHTML = '請將 QR Code 對準鏡頭　' + str狀態;
 }
 
+var int偵測影格數 = 0;   // 除錯用：累計成功嘗試解碼的影格數
+var str最後錯誤 = '';    // 除錯用：最近一次解碼過程中發生的例外訊息
+
 function 掃描迴圈() {
   if (elVideo.readyState === elVideo.HAVE_ENOUGH_DATA) {
     if (bool使用原生偵測) {
       objBarcodeDetector.detect(elVideo).then(function (arrCodes) {
         if (arrCodes.length > 0) 處理掃描結果(arrCodes[0].rawValue);
-      }).catch(function () {});
+      }).catch(function (e) { str最後錯誤 = e.message; });
     } else if (typeof jsQR === 'function') {
-      elCanvas.width = elVideo.videoWidth;
-      elCanvas.height = elVideo.videoHeight;
-      ctxCanvas.drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
-      var objImageData = ctxCanvas.getImageData(0, 0, elCanvas.width, elCanvas.height);
-      var objCode = jsQR(objImageData.data, objImageData.width, objImageData.height);
-      if (objCode && objCode.data) 處理掃描結果(objCode.data);
+      try {
+        elCanvas.width = elVideo.videoWidth;
+        elCanvas.height = elVideo.videoHeight;
+        ctxCanvas.drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
+        var objImageData = ctxCanvas.getImageData(0, 0, elCanvas.width, elCanvas.height);
+        var objCode = jsQR(objImageData.data, objImageData.width, objImageData.height);
+        int偵測影格數++;
+        if (objCode && objCode.data) 處理掃描結果(objCode.data);
+      } catch (e) {
+        str最後錯誤 = e.message;
+      }
     }
   }
   requestAnimationFrame(掃描迴圈);
 }
+
+/**
+ * v2.1
+ * 除錯資訊顯示：每秒更新一次，顯示影格處理數與視訊尺寸，
+ * 方便在手機（無法直接看瀏覽器主控台）上判斷掃描迴圈是否真的有在執行、
+ * 畫面尺寸是否正常，藉此排查「鏡頭有畫面但掃不到」的問題。
+ */
+setInterval(function () {
+  var elDebug = document.getElementById('除錯資訊');
+  if (!elDebug) return;
+  elDebug.innerText = '偵測影格數：' + int偵測影格數
+    + '　視訊尺寸：' + elVideo.videoWidth + 'x' + elVideo.videoHeight
+    + '　readyState：' + elVideo.readyState
+    + (str最後錯誤 ? '　最近錯誤：' + str最後錯誤 : '');
+}, 1000);
 
 function 處理掃描結果(str編號原始值) {
   var strNow = Date.now();

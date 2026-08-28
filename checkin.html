@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>精舍活動報到系統</title>
+<!-- 若瀏覽器不支援 BarcodeDetector（例如部分 iOS Safari 版本），
+     載入 jsQR 作為解碼備援函式庫。此為公開 CDN 函式庫，僅在必要時使用。 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<style>
+  /* ============================================================
+   * 精舍活動報到系統－報到頁 checkin.html（獨立靜態網頁版，v2.0）
+   * 說明：改為獨立靜態網頁（部署於 GitHub Pages 等），透過 fetch() 呼叫
+   *       Google Apps Script API，避免 Apps Script HtmlService 內嵌 iframe
+   *       沙盒限制導致相機權限無法開啟的問題。
+   * ============================================================ */
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
+    background: #f4f1ea;
+    margin: 0;
+    padding: 16px;
+    color: #2b2b2b;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  #video { width: 100%; max-width: 420px; border-radius: 8px; background: #000; }
+  .result-box { padding: 16px; border-radius: 10px; margin-top: 12px; font-size: 16px; min-height: 60px; }
+  .result-ok    { background: #e3f6e6; border: 2px solid #35a854; }
+  .result-dup   { background: #fff3d6; border: 2px solid #d99a1f; }
+  .result-none  { background: #fbe3e3; border: 2px solid #d24747; }
+  .result-busy  { background: #eee; border: 2px solid #999; }
+  .result-name  { font-size: 22px; font-weight: bold; margin-bottom: 4px; }
+  .notice-box { margin-top: 10px; padding: 10px 12px; background: rgba(255,255,255,0.6); border-radius: 8px; white-space: pre-wrap; font-size: 14px; line-height: 1.6; }
+  .notice-title { font-weight: bold; margin-bottom: 4px; }
+  .progress-bar { background: #e2ddcf; border-radius: 8px; overflow: hidden; height: 18px; margin: 8px 0; }
+  .progress-fill { background: #35a854; height: 100%; transition: width 0.3s; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  th { background: #efe9db; }
+  input[type=text] { width: 100%; padding: 8px; margin: 4px 0 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+  button { background: #6b4e2e; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .manual-entry { margin-top: 10px; }
+  .warn { color: #a63a3a; font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>精舍活動報到系統</h1>
+  <div class="sub" id="場次標題">載入場次資訊中...</div>
+
+  <div class="card">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div id="掃描提示" class="sub">請將 QR Code 對準鏡頭</div>
+
+    <div class="manual-entry">
+      <label for="手動編號">若無法掃描，可手動輸入學員編號：</label>
+      <input type="text" id="手動編號" placeholder="輸入學員編號後按 Enter 或送出">
+      <button id="btn手動送出">送出報到</button>
+    </div>
+
+    <div id="報到結果" class="result-box result-busy">請掃描 QR Code 進行報到</div>
+  </div>
+
+  <div class="card">
+    <h3>報到進度總覽</h3>
+    <div id="進度總計">尚無資料</div>
+    <div class="progress-bar"><div class="progress-fill" id="進度條" style="width:0%"></div></div>
+    <table id="進度組別表">
+      <thead><tr><th>組別</th><th>已報到</th><th>總人數</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+/**
+ * ============================================================
+ * 精舍活動報到系統－報到頁前端邏輯（獨立靜態網頁版）
+ * 版本：v2.0
+ * ============================================================
+ */
+
+/**
+ * ★★★ 請將下方網址改成您部署 Apps Script 後取得的網頁應用程式網址（結尾為 /exec）★★★
+ * 部署方式請見安裝與設定指南.md
+ */
+var GAS_API_URL = 'https://script.google.com/macros/s/請貼上您的部署ID/exec';
+
+var elVideo = document.getElementById('video');
+var elCanvas = document.getElementById('canvas');
+var ctxCanvas = elCanvas.getContext('2d', { willReadFrequently: true });
+var elResult = document.getElementById('報到結果');
+var elScanTip = document.getElementById('掃描提示');
+
+var bool正在處理報到 = false;
+var str上次掃描編號 = '';
+var int上次掃描時間 = 0;
+var objBarcodeDetector = null;
+var bool使用原生偵測 = false;
+
+/**
+ * v2.0
+ * 呼叫API：統一處理 GET（查詢）與 POST（寫入）兩種 API 呼叫。
+ * 錯誤處理：fetch 失敗（例如 GAS_API_URL 未設定、網路異常）時回傳統一的錯誤物件，
+ *           呼叫端不需個別處理 try/catch。
+ */
+function 呼叫API(str方法, objPayload) {
+  if (!GAS_API_URL || GAS_API_URL.indexOf('請貼上您的部署ID') > -1) {
+    return Promise.resolve({ bool成功: false, str訊息: '尚未設定 GAS_API_URL，請聯絡管理人員完成部署設定。' });
+  }
+  var objOptions;
+  var strURL = GAS_API_URL;
+  if (str方法 === 'GET') {
+    var arrParams = Object.keys(objPayload || {}).map(function (k) { return k + '=' + encodeURIComponent(objPayload[k]); });
+    strURL += (GAS_API_URL.indexOf('?') > -1 ? '&' : '?') + arrParams.join('&');
+    objOptions = { method: 'GET' };
+  } else {
+    // 使用 text/plain 避免觸發瀏覽器 CORS 預檢（Apps Script 不支援 OPTIONS 預檢請求）
+    objOptions = {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(objPayload)
+    };
+  }
+  return fetch(strURL, objOptions)
+    .then(function (res) { return res.json(); })
+    .catch(function (e) { return { bool成功: false, str訊息: '連線失敗：' + e.message }; });
+}
+
+/** v2.0　初始化頁面：載入場次資訊、啟動相機、開始定時更新進度總覽 */
+function 初始化頁面() {
+  呼叫API('GET', { action: 'getCurrentSession' }).then(function (obj回應) {
+    顯示場次資訊(obj回應.bool成功 ? obj回應.obj場次 : null, obj回應.bool成功 ? null : obj回應.str訊息);
+  });
+  啟動相機();
+  更新進度總覽();
+  setInterval(更新進度總覽, 5000);
+}
+
+function 顯示場次資訊(obj場次, str錯誤) {
+  var elTitle = document.getElementById('場次標題');
+  if (str錯誤) {
+    elTitle.innerHTML = '<span class="warn">場次資訊載入失敗：' + str錯誤 + '</span>';
+    return;
+  }
+  if (!obj場次) {
+    elTitle.innerHTML = '<span class="warn">尚未設定報到場次，請管理人員至場次管理頁設定場次後再開始報到。</span>';
+    return;
+  }
+  elTitle.innerText = '目前報到場次：' + obj場次.str場次名稱;
+}
+
+/** v2.0　啟動相機：優先使用原生 BarcodeDetector，否則改用 jsQR 解碼 */
+function 啟動相機() {
+  if ('BarcodeDetector' in window) {
+    bool使用原生偵測 = true;
+    objBarcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(function (stream) {
+      elVideo.srcObject = stream;
+      elVideo.setAttribute('playsinline', true);
+      elVideo.play();
+      requestAnimationFrame(掃描迴圈);
+    })
+    .catch(function (e) {
+      elScanTip.innerHTML = '<span class="warn">無法啟用相機（' + e.message + '），請改用下方手動輸入學員編號。</span>';
+    });
+}
+
+function 掃描迴圈() {
+  if (elVideo.readyState === elVideo.HAVE_ENOUGH_DATA) {
+    if (bool使用原生偵測) {
+      objBarcodeDetector.detect(elVideo).then(function (arrCodes) {
+        if (arrCodes.length > 0) 處理掃描結果(arrCodes[0].rawValue);
+      }).catch(function () {});
+    } else if (typeof jsQR === 'function') {
+      elCanvas.width = elVideo.videoWidth;
+      elCanvas.height = elVideo.videoHeight;
+      ctxCanvas.drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
+      var objImageData = ctxCanvas.getImageData(0, 0, elCanvas.width, elCanvas.height);
+      var objCode = jsQR(objImageData.data, objImageData.width, objImageData.height);
+      if (objCode && objCode.data) 處理掃描結果(objCode.data);
+    }
+  }
+  requestAnimationFrame(掃描迴圈);
+}
+
+function 處理掃描結果(str編號原始值) {
+  var strNow = Date.now();
+  if (str編號原始值 === str上次掃描編號 && (strNow - int上次掃描時間) < 3000) return;
+  str上次掃描編號 = str編號原始值;
+  int上次掃描時間 = strNow;
+  送出報到請求(str編號原始值);
+}
+
+function 送出報到請求(str學員編號) {
+  if (bool正在處理報到) return;
+  bool正在處理報到 = true;
+  elResult.className = 'result-box result-busy';
+  elResult.innerHTML = '處理中，請稍候...';
+
+  呼叫API('POST', { action: 'checkin', str學員編號: str學員編號 }).then(function (obj結果) {
+    bool正在處理報到 = false;
+    顯示報到結果(obj結果);
+    更新進度總覽();
+  });
+}
+
+function 產生法會公告區塊(str法會公告) {
+  if (!str法會公告) return '';
+  var elDiv = document.createElement('div');
+  elDiv.innerText = str法會公告;
+  return '<div class="notice-box"><div class="notice-title">📋 該場法會相關資料</div>' + elDiv.innerHTML + '</div>';
+}
+
+function 產生個人注意事項區塊(str個人注意事項) {
+  if (!str個人注意事項) return '';
+  var elDiv = document.createElement('div');
+  elDiv.innerText = str個人注意事項;
+  return '<div class="notice-box"><div class="notice-title">📌 個人注意事項</div>' + elDiv.innerHTML + '</div>';
+}
+
+function 顯示報到結果(obj結果) {
+  var strClass = 'result-busy';
+  var strHtml = '';
+
+  if (obj結果.str狀態 === '報到成功') {
+    strClass = 'result-ok';
+    strHtml = '<div class="result-name">✓ 報到成功　' + obj結果.str姓名 + '（' + (obj結果.str法名 || '') + '）</div>'
+      + '組別：' + (obj結果.str組別 || '') + (obj結果.str職務 ? '　｜　任務：' + obj結果.str職務 : '')
+      + '　｜　報到時間：' + obj結果.str報到時間
+      + 產生個人注意事項區塊(obj結果.str個人注意事項)
+      + 產生法會公告區塊(obj結果.str法會公告);
+  } else if (obj結果.str狀態 === '已報到過') {
+    strClass = 'result-dup';
+    strHtml = '<div class="result-name">⚠ 已報到過　' + obj結果.str姓名 + '（' + (obj結果.str法名 || '') + '）</div>'
+      + '組別：' + (obj結果.str組別 || '') + (obj結果.str職務 ? '　｜　任務：' + obj結果.str職務 : '')
+      + '　｜　原報到時間：' + obj結果.str報到時間
+      + 產生個人注意事項區塊(obj結果.str個人注意事項)
+      + 產生法會公告區塊(obj結果.str法會公告);
+  } else if (obj結果.str狀態 === '查無此人') {
+    strClass = 'result-none';
+    strHtml = '<div class="result-name">✗ 查無此人</div>學員編號：' + (obj結果.str學員編號 || '未知');
+  } else {
+    strClass = 'result-none';
+    strHtml = (obj結果.str訊息 || '報到處理失敗，請重新掃描或聯絡工作人員');
+  }
+
+  elResult.className = 'result-box ' + strClass;
+  elResult.innerHTML = strHtml;
+}
+
+function 更新進度總覽() {
+  呼叫API('GET', { action: 'getStats' }).then(function (obj統計) {
+    if (!obj統計.bool成功) {
+      document.getElementById('進度總計').innerText = obj統計.str訊息 || '尚無資料';
+      return;
+    }
+    var int百分比 = obj統計.int總人數 > 0 ? Math.round((obj統計.int已報到人數 / obj統計.int總人數) * 100) : 0;
+    document.getElementById('進度總計').innerText =
+      '已報到 ' + obj統計.int已報到人數 + ' / ' + obj統計.int總人數 + ' 人（' + int百分比 + '%）';
+    document.getElementById('進度條').style.width = int百分比 + '%';
+
+    var elTbody = document.querySelector('#進度組別表 tbody');
+    elTbody.innerHTML = '';
+    obj統計.arr依組別統計.forEach(function (obj組別) {
+      var elTr = document.createElement('tr');
+      elTr.innerHTML = '<td>' + obj組別.str組別 + '</td><td>' + obj組別.int已報到人數 + '</td><td>' + obj組別.int總人數 + '</td>';
+      elTbody.appendChild(elTr);
+    });
+  });
+}
+
+document.getElementById('btn手動送出').addEventListener('click', function () {
+  var str編號 = document.getElementById('手動編號').value.trim();
+  if (!str編號) return;
+  處理掃描結果(str編號);
+  document.getElementById('手動編號').value = '';
+});
+document.getElementById('手動編號').addEventListener('keypress', function (e) {
+  if (e.key === 'Enter') document.getElementById('btn手動送出').click();
+});
+
+初始化頁面();
+</script>
+</body>
+</html>

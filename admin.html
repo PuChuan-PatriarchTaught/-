@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>精舍活動報到系統－場次管理</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background: #f4f1ea; margin: 0; padding: 16px; color: #2b2b2b; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  th { background: #efe9db; }
+  input[type=text], textarea { width: 100%; padding: 8px; margin: 4px 0 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; font-family: inherit; }
+  button { background: #6b4e2e; color: #fff; border: none; padding: 10px 16px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  button.danger { background: #a63a3a; }
+  .warn { color: #a63a3a; font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>精舍活動報到系統－場次管理</h1>
+  <div class="sub">此頁面供管理人員設定各場活動的出席名單，一般報到台請勿使用此網址。</div>
+
+  <div class="card">
+    <h3>目前啟用場次</h3>
+    <div id="目前場次顯示">載入中...</div>
+  </div>
+
+  <div class="card">
+    <h3>新增／更新場次</h3>
+    <label>場次名稱（例如：2026年護法會幹部聯誼）</label>
+    <input type="text" id="輸入場次名稱">
+    <label>出席名單 Google Sheet 試算表ID（網址 /d/ 與 /edit 之間那段文字）</label>
+    <input type="text" id="輸入試算表ID">
+    <label>工作表分頁名稱（留空則預設抓第一個分頁）</label>
+    <input type="text" id="輸入工作表名稱">
+    <label>法會相關資料（報到成功後顯示給學員查詢，可包含流程時間表、地點交通、服儀規定等，支援換行）</label>
+    <textarea id="輸入法會公告" rows="6"></textarea>
+    <button id="btn新增場次">儲存場次設定</button>
+    <div id="新增場次訊息" class="sub"></div>
+  </div>
+
+  <div class="card">
+    <h3>已登錄場次清單</h3>
+    <table>
+      <thead><tr><th>場次名稱</th><th>試算表ID</th><th>分頁</th><th>法會公告</th><th>操作</th></tr></thead>
+      <tbody id="場次清單表格"></tbody>
+    </table>
+  </div>
+
+<script>
+/**
+ * ============================================================
+ * 精舍活動報到系統－場次管理頁前端邏輯（獨立靜態網頁版）
+ * 版本：v2.0
+ * ============================================================
+ */
+
+/** ★★★ 請將下方網址改成您部署 Apps Script 後取得的網頁應用程式網址（結尾為 /exec）★★★ */
+var GAS_API_URL = 'https://script.google.com/macros/s/請貼上您的部署ID/exec';
+
+/**
+ * v2.0
+ * 呼叫API：統一處理 GET（查詢）與 POST（寫入）兩種 API 呼叫，並附上錯誤處理。
+ */
+function 呼叫API(str方法, objPayload) {
+  if (!GAS_API_URL || GAS_API_URL.indexOf('請貼上您的部署ID') > -1) {
+    return Promise.resolve({ bool成功: false, str訊息: '尚未設定 GAS_API_URL，請聯絡管理人員完成部署設定。' });
+  }
+  var objOptions;
+  var strURL = GAS_API_URL;
+  if (str方法 === 'GET') {
+    var arrParams = Object.keys(objPayload || {}).map(function (k) { return k + '=' + encodeURIComponent(objPayload[k]); });
+    strURL += (GAS_API_URL.indexOf('?') > -1 ? '&' : '?') + arrParams.join('&');
+    objOptions = { method: 'GET' };
+  } else {
+    objOptions = {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(objPayload)
+    };
+  }
+  return fetch(strURL, objOptions)
+    .then(function (res) { return res.json(); })
+    .catch(function (e) { return { bool成功: false, str訊息: '連線失敗：' + e.message }; });
+}
+
+function 初始化管理頁() {
+  重新整理目前場次();
+  重新整理場次清單();
+}
+
+function 重新整理目前場次() {
+  document.getElementById('目前場次顯示').innerText = '載入中...';
+  呼叫API('GET', { action: 'getCurrentSession' }).then(function (obj回應) {
+    if (!obj回應.bool成功) {
+      document.getElementById('目前場次顯示').innerHTML = '<span class="warn">載入失敗：' + obj回應.str訊息 + '</span>';
+      return;
+    }
+    document.getElementById('目前場次顯示').innerText = obj回應.obj場次
+      ? obj回應.obj場次.str場次名稱
+      : '（尚未設定，請於下方清單選擇一個場次並按下「設為目前場次」）';
+  });
+}
+
+function 重新整理場次清單() {
+  呼叫API('GET', { action: 'getSessionList' }).then(function (obj回應) {
+    var elTbody = document.getElementById('場次清單表格');
+    if (!obj回應.bool成功) {
+      elTbody.innerHTML = '<tr><td colspan="5"><span class="warn">載入場次清單失敗：' + obj回應.str訊息 + '</span></td></tr>';
+      return;
+    }
+    var arr場次清單 = obj回應.arr場次清單;
+    elTbody.innerHTML = '';
+    if (!arr場次清單 || arr場次清單.length === 0) {
+      elTbody.innerHTML = '<tr><td colspan="5">尚無已登錄場次</td></tr>';
+      return;
+    }
+    arr場次清單.forEach(function (obj場次) {
+      var elTr = document.createElement('tr');
+      var str公告預覽 = (obj場次.str法會公告 || '').substring(0, 20) + ((obj場次.str法會公告 || '').length > 20 ? '...' : '');
+      elTr.innerHTML =
+        '<td>' + obj場次.str場次名稱 + '</td>' +
+        '<td>' + obj場次.str試算表ID + '</td>' +
+        '<td>' + obj場次.str工作表名稱 + '</td>' +
+        '<td>' + (str公告預覽 || '（未填寫）') + '</td>' +
+        '<td></td>';
+
+      var elTd操作 = elTr.querySelector('td:last-child');
+
+      var elBtn編輯 = document.createElement('button');
+      elBtn編輯.innerText = '編輯';
+      elBtn編輯.onclick = function () { 載入場次至表單(obj場次); };
+      elTd操作.appendChild(elBtn編輯);
+
+      var elBtn設為目前 = document.createElement('button');
+      elBtn設為目前.innerText = '設為目前場次';
+      elBtn設為目前.style.marginLeft = '6px';
+      elBtn設為目前.onclick = function () { 設定目前場次(obj場次.str場次名稱); };
+      elTd操作.appendChild(elBtn設為目前);
+
+      var elBtn刪除 = document.createElement('button');
+      elBtn刪除.innerText = '刪除';
+      elBtn刪除.className = 'danger';
+      elBtn刪除.style.marginLeft = '6px';
+      elBtn刪除.onclick = function () { 刪除場次確認(obj場次.str場次名稱); };
+      elTd操作.appendChild(elBtn刪除);
+
+      elTbody.appendChild(elTr);
+    });
+  });
+}
+
+document.getElementById('btn新增場次').addEventListener('click', function () {
+  var str場次名稱 = document.getElementById('輸入場次名稱').value.trim();
+  var str試算表ID = document.getElementById('輸入試算表ID').value.trim();
+  var str工作表名稱 = document.getElementById('輸入工作表名稱').value.trim();
+  var str法會公告 = document.getElementById('輸入法會公告').value;
+  var elMsg = document.getElementById('新增場次訊息');
+
+  if (!str場次名稱 || !str試算表ID) {
+    elMsg.innerHTML = '<span class="warn">場次名稱與試算表ID為必填。</span>';
+    return;
+  }
+
+  elMsg.innerText = '儲存中...';
+  呼叫API('POST', {
+    action: 'addSession',
+    str場次名稱: str場次名稱,
+    str試算表ID: str試算表ID,
+    str工作表名稱: str工作表名稱,
+    str法會公告: str法會公告
+  }).then(function (obj結果) {
+    elMsg.innerHTML = obj結果.bool成功 ? obj結果.str訊息 : '<span class="warn">' + obj結果.str訊息 + '</span>';
+    if (obj結果.bool成功) {
+      重新整理場次清單();
+      document.getElementById('輸入場次名稱').value = '';
+      document.getElementById('輸入試算表ID').value = '';
+      document.getElementById('輸入工作表名稱').value = '';
+      document.getElementById('輸入法會公告').value = '';
+    }
+  });
+});
+
+function 載入場次至表單(obj場次) {
+  document.getElementById('輸入場次名稱').value = obj場次.str場次名稱;
+  document.getElementById('輸入試算表ID').value = obj場次.str試算表ID;
+  document.getElementById('輸入工作表名稱').value = obj場次.str工作表名稱;
+  document.getElementById('輸入法會公告').value = obj場次.str法會公告 || '';
+  document.getElementById('輸入場次名稱').scrollIntoView({ behavior: 'smooth' });
+}
+
+function 設定目前場次(str場次名稱) {
+  呼叫API('POST', { action: 'setCurrentSession', str場次名稱: str場次名稱}).then(function (obj結果) {
+    alert(obj結果.str訊息);
+    重新整理目前場次();
+  });
+}
+
+function 刪除場次確認(str場次名稱) {
+  if (!confirm('確定要刪除場次「' + str場次名稱 + '」的登錄設定嗎？（不會刪除 Google Sheet 本身）')) return;
+  呼叫API('POST', { action: 'deleteSession', str場次名稱: str場次名稱 }).then(function (obj結果) {
+    alert(obj結果.str訊息);
+    重新整理目前場次();
+    重新整理場次清單();
+  });
+}
+
+初始化管理頁();
+</script>
+</body>
+</html>

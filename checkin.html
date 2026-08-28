@@ -25,7 +25,7 @@
   h1 { font-size: 20px; margin: 0 0 4px; }
   .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
   .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-  #video { width: 100%; max-width: 420px; height: 220px; object-fit: cover; border-radius: 8px; background: #000; display: block; }
+  #video { width: 100%; max-width: 420px; height: 160px; object-fit: cover; border-radius: 8px; background: #000; display: block; }
   .result-box { padding: 16px; border-radius: 10px; margin-top: 12px; font-size: 16px; min-height: 60px; }
   .result-ok    { background: #e3f6e6; border: 2px solid #35a854; }
   .result-dup   { background: #fff3d6; border: 2px solid #d99a1f; }
@@ -50,6 +50,12 @@
   <h1>精舍活動報到系統</h1>
   <div class="sub" id="場次標題">載入場次資訊中...</div>
 
+  <!-- 報到結果放在鏡頭「上方」：不管鏡頭畫面多高、手機螢幕多小，
+       掃描完的結果永遠是打開頁面第一眼看到的內容，不需要捲動畫面確認。 -->
+  <div class="card">
+    <div id="報到結果" class="result-box result-busy">請掃描 QR Code 進行報到</div>
+  </div>
+
   <div class="card">
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas" style="display:none;"></canvas>
@@ -61,8 +67,6 @@
       <input type="text" id="手動編號" placeholder="輸入學員編號後按 Enter 或送出">
       <button id="btn手動送出">送出報到</button>
     </div>
-
-    <div id="報到結果" class="result-box result-busy">請掃描 QR Code 進行報到</div>
   </div>
 
   <div class="card">

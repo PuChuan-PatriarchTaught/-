@@ -25,7 +25,7 @@
   h1 { font-size: 20px; margin: 0 0 4px; }
   .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
   .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-  #video { width: 100%; max-width: 420px; border-radius: 8px; background: #000; }
+  #video { width: 100%; max-width: 420px; height: 220px; object-fit: cover; border-radius: 8px; background: #000; display: block; }
   .result-box { padding: 16px; border-radius: 10px; margin-top: 12px; font-size: 16px; min-height: 60px; }
   .result-ok    { background: #e3f6e6; border: 2px solid #35a854; }
   .result-dup   { background: #fff3d6; border: 2px solid #d99a1f; }
@@ -294,6 +294,9 @@ function 顯示報到結果(obj結果) {
 
   elResult.className = 'result-box ' + strClass;
   elResult.innerHTML = strHtml;
+  // 手機直向拍攝時相機畫面偏長，掃描完自動捲動到結果區塊，
+  // 避免使用者看不到下方的報到結果、誤以為系統沒有反應。
+  elResult.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function 更新進度總覽() {

@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * 精舍活動報到系統－後端 API 主程式 Code.gs
+ * 護法會頒證出席報到系統－後端 API 主程式 Code.gs
  * 版本：v2.0
  * 說明：Google Apps Script Web App，以 JSON API 形式提供服務。
  *       前端（相機掃碼頁／場次管理頁）改為獨立靜態網頁（放在 GitHub Pages），
@@ -56,7 +56,7 @@ function doGet(e) {
         break;
       default:
         return HtmlService.createHtmlOutput(
-          '<p>精舍活動報到系統 API 後端運作中。</p>' +
+          '<p>護法會頒證出席報到系統 API 後端運作中。</p>' +
           '<p>本頁不提供操作介面，請至前端網頁（GitHub Pages）進行報到或場次管理。</p>'
         );
     }

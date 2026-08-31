@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>精舍活動報到系統</title>
+<title>護法會頒證出席報到系統</title>
 <!-- 若瀏覽器不支援 BarcodeDetector（例如部分 iOS Safari 版本），
      載入 jsQR 作為解碼備援函式庫。此為公開 CDN 函式庫，僅在必要時使用。 -->
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
   /* ============================================================
-   * 精舍活動報到系統－報到頁 checkin.html（獨立靜態網頁版，v2.0）
+   * 護法會頒證出席報到系統－報到頁 checkin.html（獨立靜態網頁版，v2.0）
    * 說明：改為獨立靜態網頁（部署於 GitHub Pages 等），透過 fetch() 呼叫
    *       Google Apps Script API，避免 Apps Script HtmlService 內嵌 iframe
    *       沙盒限制導致相機權限無法開啟的問題。
@@ -47,7 +47,7 @@
 </style>
 </head>
 <body>
-  <h1>精舍活動報到系統</h1>
+  <h1>護法會頒證出席報到系統</h1>
   <div class="sub" id="場次標題">載入場次資訊中...</div>
 
   <!-- 報到結果放在鏡頭「上方」：不管鏡頭畫面多高、手機螢幕多小，
@@ -82,7 +82,7 @@
 <script>
 /**
  * ============================================================
- * 精舍活動報到系統－報到頁前端邏輯（獨立靜態網頁版）
+ * 護法會頒證出席報到系統－報到頁前端邏輯（獨立靜態網頁版）
  * 版本：v2.0
  * ============================================================
  */
